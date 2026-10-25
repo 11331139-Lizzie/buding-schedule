@@ -402,6 +402,8 @@ const COURSE_DATA = {
     {id:11,name:"足球课",teacher:"",weekday:"周六",startTime:"09:00",endTime:"10:30",location:"篮球场",weeks:"1-16",note:"课程编号 S08，按指定日期上课",specificDates:["2026-10-03","2026-10-24","2026-10-31","2026-11-07","2026-11-28","2026-12-05","2026-12-12","2027-01-16"],active:true},
     {id:12,name:"爵士鼓课",teacher:"",weekday:"周六",startTime:"15:30",endTime:"16:15",location:"",weeks:"1-16",note:"11月起改为15:15-16:00",active:true}
   ],
+  // 请假/补课都是单独协商的，补课时间不固定（可能早于请假日期，也可能晚于），
+  // 不要用「周三补课」之类的规律去推算，一律以这里登记的为准。
   exceptions: [
     {date:"2026-10-14",courseId:12,status:"makeup",startTime:"19:00",endTime:"19:45",note:"补课（10/17请假），已上课"},
     {date:"2026-10-17",courseId:12,status:"leave",note:"请假"},
