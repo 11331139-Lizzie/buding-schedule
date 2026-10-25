@@ -1,0 +1,48 @@
+name: 课程提醒
+
+on:
+  schedule:
+    # 每 15 分钟检查一次是否需要课前提醒（UTC，北京时间 = UTC+8）
+    - cron: '*/15 * * * *'
+    # 北京时间 07:00 推送当日课表（UTC 前一天 23:00）
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'remind = 课前提醒，digest = 当日课表'
+        required: false
+        default: 'remind'
+
+permissions:
+  contents: read
+
+jobs:
+  remind:
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'digest')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 检查临近课程并推送
+        env:
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: node scripts/remind.js remind
+
+  digest:
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'digest')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 推送当日课表
+        env:
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: node scripts/remind.js digest
