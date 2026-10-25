@@ -143,6 +143,17 @@ function coursesOn(data, year, month, day) {
   }).sort((a, b) => a.startMin - b.startMin);
 }
 
+// ---------- Markdown 转纯文本（clawbot 的 txt 模板用） ----------
+function toPlainText(md) {
+  return md
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/^>\s?/gm, '')
+    .replace(/^\-\s+/gm, '· ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ---------- 推送（pushplus → 微信服务通知） ----------
 async function push(title, content) {
   if (process.env.DRY_RUN === '1') {
@@ -154,15 +165,20 @@ async function push(title, content) {
   }
   if (!PUSHPLUS_TOKEN) throw new Error('缺少 PUSHPLUS_TOKEN 环境变量');
 
+  // 渠道：wechat = 微信服务号（默认，200条/天，无需手动互动）
+  //       clawbot = 微信ClawBot（消息更像私聊，但每10条/每24h需手动发一次消息才能继续）
+  const channel = process.env.PUSH_CHANNEL || 'wechat';
+  const template = process.env.PUSH_TEMPLATE || (channel === 'clawbot' ? 'txt' : 'markdown');
+
   const res = await fetch('https://www.pushplus.plus/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       token: PUSHPLUS_TOKEN,
       title,
-      content,
-      template: 'markdown',
-      channel: 'wechat',
+      content: template === 'txt' ? toPlainText(content) : content,
+      template,
+      channel,
     }),
   });
   const body = await res.json().catch(() => ({}));
