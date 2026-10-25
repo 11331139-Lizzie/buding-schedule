@@ -29,7 +29,7 @@ jobs:
           node-version: '20'
       - name: 检查临近课程并推送
         env:
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: node scripts/remind.js remind
 
   digest:
@@ -44,5 +44,5 @@ jobs:
           node-version: '20'
       - name: 推送当日课表
         env:
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: node scripts/remind.js digest

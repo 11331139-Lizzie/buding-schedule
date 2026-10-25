@@ -1,25 +1,26 @@
 #!/usr/bin/env node
 /**
- * 布丁课程表 · 企业微信群机器人提醒
+ * 布丁课程表 · 微信提醒（通过 pushplus 推送到微信「服务通知」）
  *
  * 用法:
  *   node scripts/remind.js remind   # 课前提醒（每15分钟跑一次，命中窗口才推送）
  *   node scripts/remind.js digest   # 每日课表（早上7点跑一次）
  *
  * 环境变量:
- *   WECOM_WEBHOOK  企业微信群机器人 Webhook 地址（存在 GitHub Secrets 里）
- *   INCLUDE_SCHOOL 设为 1 时，"上学"也会发课前提醒（默认不提醒）
+ *   PUSHPLUS_TOKEN   pushplus 的用户 token（存在 GitHub Secrets 里）
+ *   INCLUDE_SCHOOL   设为 1 时，"上学"也会发课前提醒（默认不提醒）
+ *   DRY_RUN          设为 1 时只打印不发送（本地调试）
+ *   FAKE_NOW         模拟当前时间，如 "2026-10-26 15:35"（本地调试）
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const WEBHOOK = process.env.WECOM_WEBHOOK;
+const PUSHPLUS_TOKEN = process.env.PUSHPLUS_TOKEN;
 const MODE = (process.argv[2] || 'remind').toLowerCase();
 const INCLUDE_SCHOOL = process.env.INCLUDE_SCHOOL === '1';
 
 const TZ = 'Asia/Shanghai';
-const LEAD_MIN = 30;            // 提前 30 分钟提醒
 const WINDOW = [25, 39];        // 提前量落在这个区间才推送（防重复、容忍 Actions 延迟）
 const SCHOOL_NAME = '上学';      // 日常上学默认不做课前提醒
 
@@ -142,25 +143,33 @@ function coursesOn(data, year, month, day) {
   }).sort((a, b) => a.startMin - b.startMin);
 }
 
-// ---------- 推送 ----------
-async function push(markdown) {
+// ---------- 推送（pushplus → 微信服务通知） ----------
+async function push(title, content) {
   if (process.env.DRY_RUN === '1') {
     console.log('--- DRY RUN，不实际发送 ---');
-    console.log(markdown);
+    console.log('标题:', title);
+    console.log(content);
     console.log('---------------------------');
     return;
   }
-  if (!WEBHOOK) throw new Error('缺少 WECOM_WEBHOOK 环境变量');
-  const res = await fetch(WEBHOOK, {
+  if (!PUSHPLUS_TOKEN) throw new Error('缺少 PUSHPLUS_TOKEN 环境变量');
+
+  const res = await fetch('https://www.pushplus.plus/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ msgtype: 'markdown', markdown: { content: markdown } }),
+    body: JSON.stringify({
+      token: PUSHPLUS_TOKEN,
+      title,
+      content,
+      template: 'markdown',
+      channel: 'wechat',
+    }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok || (body.errcode !== undefined && body.errcode !== 0)) {
-    throw new Error(`企业微信推送失败 HTTP ${res.status} ${JSON.stringify(body)}`);
+  if (!res.ok || body.code !== 200) {
+    throw new Error(`pushplus 推送失败 HTTP ${res.status} ${JSON.stringify(body)}`);
   }
-  console.log('✓ 推送成功');
+  console.log('✓ 已提交推送, 流水号:', body.data);
 }
 
 // ---------- 课前提醒 ----------
@@ -182,15 +191,21 @@ async function runRemind(data, now) {
   }
 
   for (const { c, minsUntil } of hits) {
+    const tag = c.isMakeup ? '（补课）' : '';
+    const title = `⏰ ${minsUntil}分钟后 · ${c.name}${tag} ${c.start}`;
+
     const lines = [
-      `## ⏰ 上课提醒 · ${minsUntil} 分钟后`,
+      '## ⏰ 上课提醒',
       '',
-      `**<font color="warning">${c.name}</font>**${c.isMakeup ? ' <font color="comment">（补课）</font>' : ''}`,
-      `> 时间：**${c.start} - ${c.end}**`,
+      `### ${c.name}${tag}`,
+      '',
+      `- **时间**：${c.start} - ${c.end}`,
     ];
-    if (c.location) lines.push(`> 地点：${c.location}`);
-    if (c.note) lines.push(`> 备注：${c.note}`);
-    await push(lines.join('\n'));
+    if (c.location) lines.push(`- **地点**：${c.location}`);
+    if (c.note) lines.push(`- **备注**：${c.note}`);
+    lines.push('', `> 还有 **${minsUntil} 分钟** 开始`);
+
+    await push(title, lines.join('\n'));
   }
 }
 
@@ -205,17 +220,21 @@ async function runDigest(data, now) {
     return;
   }
 
+  const title = `📚 今日课表 · ${dateText}（${todays.length}节）`;
+
   const lines = [
-    `## 📚 今日课程 · ${dateText}`,
-    `> 共 ${todays.length} 节课`,
+    '## 📚 今日课程',
+    '',
+    `**${dateText}** · 共 ${todays.length} 节课`,
     '',
   ];
   for (const c of todays) {
-    const tag = c.isMakeup ? ' <font color="comment">补课</font>' : '';
-    const loc = c.location ? ` 📍${c.location}` : '';
-    lines.push(`**${c.start} - ${c.end}** ${c.name}${tag}${loc}`);
+    const tag = c.isMakeup ? '（补课）' : '';
+    const loc = c.location ? ` · 📍${c.location}` : '';
+    lines.push(`- **${c.start} - ${c.end}**　${c.name}${tag}${loc}`);
   }
-  await push(lines.join('\n'));
+
+  await push(title, lines.join('\n'));
 }
 
 // ---------- 入口 ----------
