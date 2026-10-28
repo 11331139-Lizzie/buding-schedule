@@ -27,8 +27,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: 检查临近课程并推送
+          cache: 'npm'
+      - run: npm ci --omit=dev
+      - name: 检查临近课程并发送邮件
         env:
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_PASS: ${{ secrets.MAIL_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: node scripts/remind.js remind
 
@@ -42,7 +48,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: 推送当日课表
+          cache: 'npm'
+      - run: npm ci --omit=dev
+      - name: 发送当日课表邮件
         env:
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_PASS: ${{ secrets.MAIL_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: node scripts/remind.js digest

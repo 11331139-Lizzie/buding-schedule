@@ -1,0 +1,14 @@
+{
+  "name": "buding-schedule",
+  "version": "1.0.0",
+  "private": true,
+  "description": "布丁课程表 - 课程表 / 出勤日历 / 月度统计 + 邮件提醒",
+  "scripts": {
+    "digest": "node scripts/remind.js digest",
+    "remind": "node scripts/remind.js remind",
+    "test": "DRY_RUN=1 node scripts/remind.js digest"
+  },
+  "dependencies": {
+    "nodemailer": "^7.0.13"
+  }
+}
