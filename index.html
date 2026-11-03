@@ -575,7 +575,9 @@ function renderCourses() {
     return true;
   });
 
-  allExceptions.filter(function(ex){return ex.status==='makeup'&&new Date(ex.date).getDay()===activeTabIdx}).forEach(function(ex){
+  // 只显示今天及以后的补课（已过去的补课不再出现在课表tab中）
+  var todayKey=formatDateKey(new Date().getFullYear(),new Date().getMonth()+1,new Date().getDate());
+  allExceptions.filter(function(ex){return ex.status==='makeup'&&new Date(ex.date).getDay()===activeTabIdx&&ex.date>=todayKey}).forEach(function(ex){
     var c=allCourses.find(function(c){return c.id===ex.courseId});
     if(c) courses.push(Object.assign({},c,{_makeup:true,_makeupStart:ex.startTime,_makeupEnd:ex.endTime,_makeupNote:ex.note}));
   });
