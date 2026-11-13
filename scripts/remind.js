@@ -121,6 +121,21 @@ function resolveTimes(course, dateKey) {
   return { start, end };
 }
 
+// 某天生效的星期几（支持 timeOverrides 从 from 起改星期，例如爵士鼓 12 月起周六→周五）
+function effectiveWeekday(course, dateKey) {
+  let wd = course.weekday;
+  if (Array.isArray(course.timeOverrides) && course.timeOverrides.length) {
+    const applicable = course.timeOverrides
+      .filter(o => !o.from || dateKey >= o.from)
+      .sort((a, b) => String(a.from || '').localeCompare(String(b.from || '')));
+    if (applicable.length) {
+      const last = applicable[applicable.length - 1];
+      if (last.weekday) wd = last.weekday;
+    }
+  }
+  return wd;
+}
+
 // ---------- 某天有哪些课 ----------
 function coursesOn(data, year, month, day) {
   const dateKey = `${year}-${pad2(month)}-${pad2(day)}`;
@@ -136,7 +151,7 @@ function coursesOn(data, year, month, day) {
   const regular = data.courses.filter(c => {
     if (!c.active) return false;
     if (skipped.has(c.id)) return false;
-    if (WD.indexOf(c.weekday) !== wdIdx) return false;
+    if (WD.indexOf(effectiveWeekday(c, dateKey)) !== wdIdx) return false;
     if (c.specificDates && c.specificDates.length) {
       return c.specificDates.includes(dateKey);
     }

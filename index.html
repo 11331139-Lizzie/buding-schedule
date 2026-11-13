@@ -400,7 +400,8 @@ const COURSE_DATA = {
     {id:9,name:"钢琴课",teacher:"",weekday:"周二",startTime:"16:00",endTime:"16:45",location:"",weeks:"1-16",note:"",active:true},
     {id:10,name:"奥数课",teacher:"",weekday:"周二",startTime:"19:00",endTime:"20:00",location:"",weeks:"1-16",note:"",active:true},
     {id:11,name:"足球课",teacher:"",weekday:"周六",startTime:"09:00",endTime:"10:30",location:"篮球场",weeks:"1-16",note:"课程编号 S08，按指定日期上课",specificDates:["2026-10-03","2026-10-24","2026-10-31","2026-11-07","2026-11-28","2026-12-05","2026-12-12","2027-01-16"],active:true},
-    {id:12,name:"爵士鼓课",teacher:"",weekday:"周六",startTime:"15:30",endTime:"16:15",location:"",weeks:"1-16",note:"11月起改为15:15-16:00",active:true}
+    {id:12,name:"爵士鼓课",teacher:"",weekday:"周六",startTime:"15:15",endTime:"16:00",location:"",weeks:"1-16",note:"12月起改周五15:30-16:15",active:true,
+      timeOverrides:[{from:"2026-12-01",weekday:"周五",startTime:"15:30",endTime:"16:15"}]}
   ],
   // 请假/补课都是单独协商的，补课时间不固定（可能早于请假日期，也可能晚于），
   // 不要用「周三补课」之类的规律去推算，一律以这里登记的为准。
@@ -483,25 +484,53 @@ function formatDateKey(y,m,d) { return y+'-'+pad2(m)+'-'+pad2(d); }
 function getCurrentTime() { const n=new Date(); return pad2(n.getHours())+':'+pad2(n.getMinutes()); }
 function timeToMin(t) { const p=t.split(':'); return parseInt(p[0])*60+parseInt(p[1]); }
 
-function isToday(c) {
-  if (toWeekdayIdx(c.weekday) !== new Date().getDay()) return false;
-  if (c.specificDates && c.specificDates.length) {
-    const n=new Date(); return c.specificDates.includes(formatDateKey(n.getFullYear(),n.getMonth()+1,n.getDate()));
+// 课程在某一天的实际安排：支持 timeOverrides（从 from 日期起改星期/改时间）
+function resolveSchedule(c, dateKey) {
+  var wd=c.weekday, st=c.startTime, et=c.endTime;
+  if (Array.isArray(c.timeOverrides) && c.timeOverrides.length) {
+    var ap=c.timeOverrides.filter(function(o){return !o.from||dateKey>=o.from;})
+      .sort(function(a,b){return String(a.from||'').localeCompare(String(b.from||''));});
+    if (ap.length) {
+      var last=ap[ap.length-1];
+      if (last.weekday) wd=last.weekday;
+      if (last.startTime) st=last.startTime;
+      if (last.endTime) et=last.endTime;
+    }
   }
+  return {weekday:wd,startTime:st,endTime:et};
+}
+function todayKeyStr() { var n=new Date(); return formatDateKey(n.getFullYear(),n.getMonth()+1,n.getDate()); }
+function todaySchedule(c) { return resolveSchedule(c, todayKeyStr()); }
+// 某个星期几的下一次日期（含今天），用于「周几」标签页判断按哪周的安排显示
+function nextDateKeyForWeekday(idx) {
+  var n=new Date(); var diff=(idx-n.getDay()+7)%7;
+  var d=new Date(n.getFullYear(),n.getMonth(),n.getDate()+diff);
+  return formatDateKey(d.getFullYear(),d.getMonth()+1,d.getDate());
+}
+
+function isToday(c) {
+  var n=new Date(), dk=todayKeyStr(), eff=resolveSchedule(c,dk);
+  if (toWeekdayIdx(eff.weekday) !== n.getDay()) return false;
+  if (c.specificDates && c.specificDates.length) return c.specificDates.includes(dk);
   return true;
 }
-function isNow(c) { return isToday(c) && getCurrentTime() >= c.startTime && getCurrentTime() <= c.endTime; }
-function isUpcoming(c) { return isToday(c) && getCurrentTime() < c.startTime; }
+function isNow(c) { if(!isToday(c)) return false; var t=todaySchedule(c); return getCurrentTime() >= t.startTime && getCurrentTime() <= t.endTime; }
+function isUpcoming(c) { if(!isToday(c)) return false; return getCurrentTime() < todaySchedule(c).startTime; }
 function isExtra(c) { return isToday(c) && c.name !== '上学'; }
 function courseActiveOnDate(c,y,m,d) {
   if (!c.active) return false;
-  const dt=new Date(y,m-1,d); if (toWeekdayIdx(c.weekday)!==dt.getDay()) return false;
-  if (c.specificDates&&c.specificDates.length) return c.specificDates.includes(formatDateKey(y,m,d));
+  const dk=formatDateKey(y,m,d);
+  const eff=resolveSchedule(c,dk);
+  const dt=new Date(y,m-1,d); if (toWeekdayIdx(eff.weekday)!==dt.getDay()) return false;
+  if (c.specificDates&&c.specificDates.length) return c.specificDates.includes(dk);
   return true;
 }
 function getCoursesForDate(y,m,d) {
   const dk=formatDateKey(y,m,d);
-  const reg=allCourses.filter(c=>courseActiveOnDate(c,y,m,d));
+  const reg=allCourses.filter(c=>courseActiveOnDate(c,y,m,d)).map(c=>{
+    const eff=resolveSchedule(c,dk);
+    return Object.assign({},c,{weekday:eff.weekday,startTime:eff.startTime,endTime:eff.endTime});
+  });
   const mk=allExceptions.filter(ex=>ex.date===dk&&ex.status==='makeup').map(ex=>{
     const c=allCourses.find(c=>c.id===ex.courseId); if(!c)return null;
     return Object.assign({},c,{_makeup:true,_makeupStart:ex.startTime,_makeupEnd:ex.endTime,_makeupNote:ex.note});
@@ -563,16 +592,22 @@ function renderWeekTabs() {
 function switchTab(idx) { activeTabIdx=idx; renderWeekTabs(); renderCourses(); }
 
 function renderCourses() {
+  var todayIdx=new Date().getDay();
+  // 「周几」标签页：今天用今天，其他用该星期几的下一次日期，据此决定套用哪一版时间安排
+  var refKey = activeTabIdx===todayIdx ? todayKeyStr() : nextDateKeyForWeekday(activeTabIdx);
   var courses=allCourses.filter(function(c){
-    if(toWeekdayIdx(c.weekday)!==activeTabIdx) return false;
     if(!c.active) return false;
+    if(toWeekdayIdx(resolveSchedule(c,refKey).weekday)!==activeTabIdx) return false;
     if(c.specificDates&&c.specificDates.length) {
-      if(activeTabIdx===new Date().getDay()) {
-        var n=new Date(); return c.specificDates.indexOf(formatDateKey(n.getFullYear(),n.getMonth()+1,n.getDate()))!==-1;
+      if(activeTabIdx===todayIdx) {
+        return c.specificDates.indexOf(refKey)!==-1;
       }
       return c.specificDates.some(function(dk){return new Date(dk).getDay()===activeTabIdx});
     }
     return true;
+  }).map(function(c){
+    var eff=resolveSchedule(c,refKey);
+    return Object.assign({},c,{weekday:eff.weekday,startTime:eff.startTime,endTime:eff.endTime});
   });
 
   // 只显示今天及以后的补课（已过去的补课不再出现在课表tab中）
