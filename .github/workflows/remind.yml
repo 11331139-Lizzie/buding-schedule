@@ -2,10 +2,9 @@ name: 课程提醒
 
 on:
   schedule:
-    # 每 2 小时启动一次「长跑」任务：任务内部每 15 分钟检查一次课前提醒，
-    # 单次持续约 5 小时。这样即使 GitHub 把定时任务降频，
-    # 也有多个任务排队接力，实际保持 15 分钟粒度。
-    - cron: '0 */2 * * *'
+    # 每 4 小时启动一次「长跑」任务：任务内部每 15 分钟检查一次课前提醒，
+    # 单次持续约 5.5 小时，比启动间隔多 1.5 小时做重叠冗余，不会断档。
+    - cron: '0 */4 * * *'
     # 北京时间 07:00 推送当日课表（UTC 前一天 23:00）
     - cron: '0 23 * * *'
   workflow_dispatch:
@@ -41,13 +40,13 @@ jobs:
 
   remind-loop:
     if: |
-      (github.event_name == 'schedule' && github.event.schedule == '0 */2 * * *') ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 */4 * * *') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'digest')
     concurrency:
       group: remind-loop
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -67,7 +66,7 @@ jobs:
           if [ "$MODE" = "remind" ]; then
             ITER=1
           else
-            ITER=20
+            ITER=22
           fi
           echo "模式=$MODE，本轮循环 $ITER 次（约 $((ITER * 15)) 分钟）"
           for i in $(seq 1 $ITER); do

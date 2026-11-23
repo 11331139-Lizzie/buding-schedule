@@ -30,7 +30,7 @@ const MODE = (process.argv[2] || 'remind').toLowerCase();
 const INCLUDE_SCHOOL = process.env.INCLUDE_SCHOOL === '1';
 
 const TZ = 'Asia/Shanghai';
-const WINDOW = [25, 39];        // 提前量落在这个区间才推送（防重复、容忍 Actions 延迟）
+const WINDOW = [23, 37];        // 课前半小时提醒：窗口宽度 14 分钟 < 检查间隔 15 分钟，保证每节课只命中一次
 const SCHOOL_NAME = '上学';      // 日常上学默认不做课前提醒
 
 const WD = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
