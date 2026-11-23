@@ -250,7 +250,7 @@ function courseRow(c) {
   </tr>`;
 }
 
-// ---------- 发送：邮件优先，pushplus 兜底 ----------
+// ---------- 发送：邮件 + 微信（pushplus）双通道，各自独立 ----------
 async function send(subject, text, html, md) {
   if (process.env.DRY_RUN === '1') {
     console.log('--- DRY RUN，不实际发送 ---');
@@ -265,29 +265,37 @@ async function send(subject, text, html, md) {
     return;
   }
 
-  if (!MAIL_USER || !MAIL_PASS) {
-    throw new Error('缺少 MAIL_USER / MAIL_PASS 环境变量（邮件推送需要）');
+  const errors = [];
+  let sent = 0;
+
+  // --- 通道 1：邮件 ---
+  if (MAIL_USER && MAIL_PASS) {
+    try {
+      // 延迟 require，保证 DRY_RUN 时无需安装依赖
+      const nodemailer = require('nodemailer');
+      const transporter = nodemailer.createTransport({
+        host: MAIL_HOST,
+        port: MAIL_PORT,
+        secure: MAIL_PORT === 465,
+        auth: { user: MAIL_USER, pass: MAIL_PASS },
+      });
+      const info = await transporter.sendMail({
+        from: `"布丁课程表" <${MAIL_USER}>`,
+        to: MAIL_TO,
+        subject,
+        text,
+        html,
+      });
+      console.log('✓ 邮件已发送:', info.messageId, '→', MAIL_TO);
+      sent++;
+    } catch (e) {
+      errors.push('邮件: ' + e.message);
+    }
+  } else {
+    errors.push('邮件: 缺少 MAIL_USER / MAIL_PASS');
   }
 
-  // 延迟 require，保证 DRY_RUN 时无需安装依赖
-  const nodemailer = require('nodemailer');
-  const transporter = nodemailer.createTransport({
-    host: MAIL_HOST,
-    port: MAIL_PORT,
-    secure: MAIL_PORT === 465,
-    auth: { user: MAIL_USER, pass: MAIL_PASS },
-  });
-
-  const info = await transporter.sendMail({
-    from: `"布丁课程表" <${MAIL_USER}>`,
-    to: MAIL_TO,
-    subject,
-    text,
-    html,
-  });
-  console.log('✓ 邮件已发送:', info.messageId, '→', MAIL_TO);
-
-  // 配了 pushplus 就顺带推一条微信（可选）
+  // --- 通道 2：微信（pushplus）---
   if (PUSHPLUS_TOKEN) {
     try {
       const channel = process.env.PUSH_CHANNEL || 'wechat';
@@ -305,14 +313,21 @@ async function send(subject, text, html, md) {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || body.code !== 200) {
-        console.warn('⚠ pushplus 推送失败:', res.status, JSON.stringify(body));
+        errors.push('微信: HTTP ' + res.status + ' ' + JSON.stringify(body));
       } else {
         console.log('✓ 微信推送已提交');
+        sent++;
       }
     } catch (e) {
-      console.warn('⚠ pushplus 推送异常:', e.message);
+      errors.push('微信: ' + e.message);
     }
+  } else {
+    errors.push('微信: 未配置 PUSHPLUS_TOKEN');
   }
+
+  // 两个通道都失败才算整体失败；只有一个失败只告警，不影响另一个
+  if (sent === 0) throw new Error('所有推送通道均失败 → ' + errors.join(' | '));
+  if (errors.length) console.warn('⚠ 部分通道未送达 → ' + errors.join(' | '));
 }
 
 // ---------- 课前提醒 ----------
