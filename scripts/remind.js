@@ -148,6 +148,14 @@ function coursesOn(data, year, month, day) {
       .map(e => e.courseId)
   );
 
+  // 当天临时改时间（例如 11/24 奥数 19:00 → 17:00）
+  const timeFix = new Map(
+    data.exceptions
+      .filter(e => e.date === dateKey && e.startTime && e.endTime
+        && e.status !== 'makeup' && e.status !== 'leave' && e.status !== 'cancelled')
+      .map(e => [e.courseId, e])
+  );
+
   const regular = data.courses.filter(c => {
     if (!c.active) return false;
     if (skipped.has(c.id)) return false;
@@ -176,12 +184,16 @@ function coursesOn(data, year, month, day) {
   return regular.concat(makeup).map(c => {
     const t = c._makeup
       ? { start: c._overrideStart, end: c._overrideEnd }
-      : resolveTimes(c, dateKey);
+      : (timeFix.has(c.id)
+          ? { start: timeFix.get(c.id).startTime, end: timeFix.get(c.id).endTime }
+          : resolveTimes(c, dateKey));
     return {
       id: c.id,
       name: c.name,
       location: c.location || '',
-      note: c._makeup ? (c._note || '') : (c.note || ''),
+      note: c._makeup
+        ? (c._note || '')
+        : (timeFix.has(c.id) ? (timeFix.get(c.id).note || c.note || '') : (c.note || '')),
       isMakeup: !!c._makeup,
       start: t.start,
       end: t.end,

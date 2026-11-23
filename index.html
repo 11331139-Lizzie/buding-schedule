@@ -409,7 +409,9 @@ const COURSE_DATA = {
     {date:"2026-10-14",courseId:12,status:"makeup",startTime:"19:00",endTime:"19:45",note:"补课（10/17请假），已上课"},
     {date:"2026-10-17",courseId:12,status:"leave",note:"请假"},
     {date:"2026-10-31",courseId:12,status:"leave",note:"请假"},
-    {date:"2026-11-04",courseId:12,status:"makeup",startTime:"16:00",endTime:"16:45",note:"补课（10/31请假）"}
+    {date:"2026-11-04",courseId:12,status:"makeup",startTime:"16:00",endTime:"16:45",note:"补课（10/31请假）"},
+    {date:"2026-11-21",courseId:12,status:"leave",note:"请假"},
+    {date:"2026-11-24",courseId:10,status:"pending",startTime:"17:00",endTime:"18:00",note:"临时改时间 17:00-18:00"}
   ]
 };
 
@@ -525,11 +527,24 @@ function courseActiveOnDate(c,y,m,d) {
   if (c.specificDates&&c.specificDates.length) return c.specificDates.includes(dk);
   return true;
 }
+// 某天的临时改时间：exceptions 里带 startTime/endTime 且不是请假/补课的记录
+function dayTimeOverride(dateKey, courseId) {
+  var hits=allExceptions.filter(function(ex){
+    return ex.date===dateKey && ex.courseId===courseId && ex.startTime && ex.endTime
+      && ex.status!=='makeup' && ex.status!=='leave' && ex.status!=='cancelled';
+  });
+  return hits.length ? hits[hits.length-1] : null;
+}
+function applyDayOverride(c, dateKey) {
+  var fx=dayTimeOverride(dateKey, c.id);
+  if (!fx) return c;
+  return Object.assign({}, c, {startTime:fx.startTime, endTime:fx.endTime, note:fx.note||c.note, _timeChanged:true});
+}
 function getCoursesForDate(y,m,d) {
   const dk=formatDateKey(y,m,d);
   const reg=allCourses.filter(c=>courseActiveOnDate(c,y,m,d)).map(c=>{
     const eff=resolveSchedule(c,dk);
-    return Object.assign({},c,{weekday:eff.weekday,startTime:eff.startTime,endTime:eff.endTime});
+    return applyDayOverride(Object.assign({},c,{weekday:eff.weekday,startTime:eff.startTime,endTime:eff.endTime}), dk);
   });
   const mk=allExceptions.filter(ex=>ex.date===dk&&ex.status==='makeup').map(ex=>{
     const c=allCourses.find(c=>c.id===ex.courseId); if(!c)return null;
@@ -607,7 +622,7 @@ function renderCourses() {
     return true;
   }).map(function(c){
     var eff=resolveSchedule(c,refKey);
-    return Object.assign({},c,{weekday:eff.weekday,startTime:eff.startTime,endTime:eff.endTime});
+    return applyDayOverride(Object.assign({},c,{weekday:eff.weekday,startTime:eff.startTime,endTime:eff.endTime}), refKey);
   });
 
   // 只显示今天及以后的补课（已过去的补课不再出现在课表tab中）
