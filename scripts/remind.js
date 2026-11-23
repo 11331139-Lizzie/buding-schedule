@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 布丁课程表 · 课程提醒（邮件 / pushplus 微信）
+ * 布丁课程表 · 课程提醒（邮件通知）
  *
  * 用法:
  *   node scripts/remind.js remind   # 课前提醒（每15分钟跑一次，命中窗口才发送）
@@ -12,7 +12,6 @@
  *   MAIL_TO         收件邮箱，留空则发给自己（多个用逗号分隔）
  *   MAIL_HOST       默认 smtp.qq.com
  *   MAIL_PORT       默认 465（SSL）
- *   PUSHPLUS_TOKEN  可选，配了会同时推到微信（邮件失败时作为兜底）
  *   INCLUDE_SCHOOL  设为 1 时「上学」也发课前提醒（默认不提醒）
  *   DRY_RUN         设为 1 时只打印不发送（本地调试）
  *   FAKE_NOW        模拟当前时间，如 "2026-10-26 15:35"（本地调试）
@@ -26,7 +25,6 @@ const MAIL_PASS = process.env.MAIL_PASS || '';
 const MAIL_TO = process.env.MAIL_TO || MAIL_USER;
 const MAIL_HOST = process.env.MAIL_HOST || 'smtp.qq.com';
 const MAIL_PORT = Number(process.env.MAIL_PORT || 465);
-const PUSHPLUS_TOKEN = process.env.PUSHPLUS_TOKEN || '';
 
 const MODE = (process.argv[2] || 'remind').toLowerCase();
 const INCLUDE_SCHOOL = process.env.INCLUDE_SCHOOL === '1';
@@ -202,17 +200,6 @@ function coursesOn(data, year, month, day) {
   }).sort((a, b) => a.startMin - b.startMin);
 }
 
-// ---------- Markdown 转纯文本（pushplus 的 txt 模板用） ----------
-function toPlainText(md) {
-  return md
-    .replace(/^#{1,6}\s*/gm, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/^>\s?/gm, '')
-    .replace(/^\-\s+/gm, '· ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
 // ---------- 邮件正文（HTML） ----------
 const esc = s => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -250,8 +237,8 @@ function courseRow(c) {
   </tr>`;
 }
 
-// ---------- 发送：邮件 + 微信（pushplus）双通道，各自独立 ----------
-async function send(subject, text, html, md) {
+// ---------- 发送：邮件 ----------
+async function send(subject, text, html) {
   if (process.env.DRY_RUN === '1') {
     console.log('--- DRY RUN，不实际发送 ---');
     console.log('主题:', subject);
@@ -265,69 +252,27 @@ async function send(subject, text, html, md) {
     return;
   }
 
-  const errors = [];
-  let sent = 0;
-
-  // --- 通道 1：邮件 ---
-  if (MAIL_USER && MAIL_PASS) {
-    try {
-      // 延迟 require，保证 DRY_RUN 时无需安装依赖
-      const nodemailer = require('nodemailer');
-      const transporter = nodemailer.createTransport({
-        host: MAIL_HOST,
-        port: MAIL_PORT,
-        secure: MAIL_PORT === 465,
-        auth: { user: MAIL_USER, pass: MAIL_PASS },
-      });
-      const info = await transporter.sendMail({
-        from: `"布丁课程表" <${MAIL_USER}>`,
-        to: MAIL_TO,
-        subject,
-        text,
-        html,
-      });
-      console.log('✓ 邮件已发送:', info.messageId, '→', MAIL_TO);
-      sent++;
-    } catch (e) {
-      errors.push('邮件: ' + e.message);
-    }
-  } else {
-    errors.push('邮件: 缺少 MAIL_USER / MAIL_PASS');
+  if (!MAIL_USER || !MAIL_PASS) {
+    throw new Error('缺少 MAIL_USER / MAIL_PASS 环境变量（邮件推送需要）');
   }
 
-  // --- 通道 2：微信（pushplus）---
-  if (PUSHPLUS_TOKEN) {
-    try {
-      const channel = process.env.PUSH_CHANNEL || 'wechat';
-      const template = process.env.PUSH_TEMPLATE || (channel === 'clawbot' ? 'txt' : 'markdown');
-      const res = await fetch('https://www.pushplus.plus/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: PUSHPLUS_TOKEN,
-          title: subject,
-          content: template === 'txt' ? toPlainText(md) : md,
-          template,
-          channel,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body.code !== 200) {
-        errors.push('微信: HTTP ' + res.status + ' ' + JSON.stringify(body));
-      } else {
-        console.log('✓ 微信推送已提交');
-        sent++;
-      }
-    } catch (e) {
-      errors.push('微信: ' + e.message);
-    }
-  } else {
-    errors.push('微信: 未配置 PUSHPLUS_TOKEN');
-  }
+  // 延迟 require，保证 DRY_RUN 时无需安装依赖
+  const nodemailer = require('nodemailer');
+  const transporter = nodemailer.createTransport({
+    host: MAIL_HOST,
+    port: MAIL_PORT,
+    secure: MAIL_PORT === 465,
+    auth: { user: MAIL_USER, pass: MAIL_PASS },
+  });
 
-  // 两个通道都失败才算整体失败；只有一个失败只告警，不影响另一个
-  if (sent === 0) throw new Error('所有推送通道均失败 → ' + errors.join(' | '));
-  if (errors.length) console.warn('⚠ 部分通道未送达 → ' + errors.join(' | '));
+  const info = await transporter.sendMail({
+    from: `"布丁课程表" <${MAIL_USER}>`,
+    to: MAIL_TO,
+    subject,
+    text,
+    html,
+  });
+  console.log('✓ 邮件已发送:', info.messageId, '→', MAIL_TO);
 }
 
 // ---------- 课前提醒 ----------
@@ -369,7 +314,7 @@ async function runRemind(data, now) {
       c.note ? `备注 / Note：${esc(c.note)}` : '布丁课程表 · 课前 30 分钟提醒',
     );
 
-    await send(subject, lines.join('\n'), html, lines.join('\n'));
+    await send(subject, lines.join('\n'), html);
   }
 }
 
@@ -406,7 +351,7 @@ async function runDigest(data, now) {
     '布丁课程表 · 每天早上 7:00 自动发送<br>Asher Class Schedule · sent daily at 7:00 AM',
   );
 
-  await send(subject, lines.join('\n'), html, lines.join('\n'));
+  await send(subject, lines.join('\n'), html);
 }
 
 // ---------- 入口 ----------

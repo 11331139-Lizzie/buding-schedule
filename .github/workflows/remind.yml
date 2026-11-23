@@ -35,7 +35,6 @@ jobs:
           MAIL_PASS: ${{ secrets.MAIL_PASS }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           MAIL_HOST: ${{ secrets.MAIL_HOST }}
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: node scripts/remind.js remind
 
   digest:
@@ -56,5 +55,4 @@ jobs:
           MAIL_PASS: ${{ secrets.MAIL_PASS }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           MAIL_HOST: ${{ secrets.MAIL_HOST }}
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: node scripts/remind.js digest
