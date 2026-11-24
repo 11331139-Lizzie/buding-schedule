@@ -2,51 +2,26 @@ name: 课程提醒
 
 on:
   schedule:
-    # 每 4 小时启动一次「长跑」任务：任务内部每 15 分钟检查一次课前提醒，
-    # 单次持续约 5.5 小时，比启动间隔多 1.5 小时做重叠冗余，不会断档。
-    - cron: '0 */4 * * *'
-    # 北京时间 07:00 推送当日课表（UTC 前一天 23:00）
-    - cron: '0 23 * * *'
+    # 每 2 小时启动一次「长跑」任务，任务内部每 15 分钟检查一次。
+    # 单次持续约 150 分钟，比启动间隔多 30 分钟冗余，避免 GitHub 降频造成断档。
+    - cron: '0 */2 * * *'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'remind = 课前提醒（单次），loop = 长跑提醒，digest = 当日课表'
+        description: 'loop = 长跑（默认），remind = 只跑一轮，digest = 立即发当日课表'
         required: false
-        default: 'remind'
+        default: 'loop'
 
 permissions:
   contents: read
 
 jobs:
-  digest:
-    if: |
-      (github.event_name == 'schedule' && github.event.schedule == '0 23 * * *') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'digest')
+  remind:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci --omit=dev
-      - name: 发送当日课表邮件
-        env:
-          MAIL_USER: ${{ secrets.MAIL_USER }}
-          MAIL_PASS: ${{ secrets.MAIL_PASS }}
-          MAIL_TO: ${{ secrets.MAIL_TO }}
-          MAIL_HOST: ${{ secrets.MAIL_HOST }}
-        run: node scripts/remind.js digest
-
-  remind-loop:
-    if: |
-      (github.event_name == 'schedule' && github.event.schedule == '0 */4 * * *') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.mode != 'digest')
+    timeout-minutes: 180
     concurrency:
       group: remind-loop
       cancel-in-progress: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,7 +29,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci --omit=dev
-      - name: 每 15 分钟检查一次课前提醒
+      - name: 课前提醒 + 每日课表
         env:
           MAIL_USER: ${{ secrets.MAIL_USER }}
           MAIL_PASS: ${{ secrets.MAIL_PASS }}
@@ -62,17 +37,35 @@ jobs:
           MAIL_HOST: ${{ secrets.MAIL_HOST }}
         run: |
           MODE="${{ github.event.inputs.mode }}"
-          if [ -z "$MODE" ]; then MODE="loop"; fi
+
+          if [ "$MODE" = "digest" ]; then
+            echo "立即发送当日课表"
+            node scripts/remind.js digest
+            exit 0
+          fi
+
           if [ "$MODE" = "remind" ]; then
             ITER=1
           else
-            ITER=22
+            ITER=10
           fi
-          echo "模式=$MODE，本轮循环 $ITER 次（约 $((ITER * 15)) 分钟）"
+          echo "模式=${MODE:-loop}，本轮循环 $ITER 次（约 $((ITER * 15)) 分钟）"
+
           for i in $(seq 1 $ITER); do
             echo "::group::第 $i/$ITER 轮 · $(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M')"
-            node scripts/remind.js remind || echo "本轮执行失败，继续下一轮"
+
+            # 北京时间 07:00-07:14 发当日课表。
+            # 每轮间隔 15 分钟，所以一天最多命中一次，不会重复发送。
+            H=$(TZ=Asia/Shanghai date +%H)
+            M=$(TZ=Asia/Shanghai date +%M)
+            if [ "$H" = "07" ] && [ "$((10#$M))" -lt 15 ]; then
+              echo "→ 命中每日课表时段，发送今日课表"
+              node scripts/remind.js digest || echo "课表发送失败，继续下一轮"
+            fi
+
+            node scripts/remind.js remind || echo "本轮提醒失败，继续下一轮"
             echo "::endgroup::"
+
             if [ "$i" -lt "$ITER" ]; then sleep 900; fi
           done
           echo "循环结束"
